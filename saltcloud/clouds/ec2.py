@@ -752,6 +752,11 @@ def block_device_mappings(vm_):
         'block_device_mappings', vm_, __opts__, search_global=True
     )
 
+def route_53(vm_):
+    return config.get_config_value(
+        'route_53', vm_, __opts__, search_global=True
+    )
+
 def create(vm_=None, call=None):
     '''
     Create a single VM from a data dict
@@ -1142,6 +1147,10 @@ def create(vm_=None, call=None):
     )
     log.info('Created node {0}'.format(vm_['name']))
 
+    # Configure Route 53 DNS
+    #set_dns(vm_['name'])
+
+
     if ssh_interface(vm_) == 'private_ips':
         ip_address = data[0]['instancesSet']['item']['privateIpAddress']
         log.info('Salt node data. Private_ip: {0}'.format(ip_address))
@@ -1307,6 +1316,44 @@ def create(vm_=None, call=None):
     )
 
     return ret
+
+
+def set_dns(name, kwargs, call=None):
+    """
+    Set DNS (Route 53) for a node
+
+    CLI Example::
+        salt-cloud -a set_dns mymachine fqdn=app-srv.example.org hosted_zone_id=Z123ABCX record_type=CNAME
+    """
+
+    fqdn = kwargs['fqdn']
+    hosted_zone_id = kwargs['hosted_zone_id']
+    record_type = kwargs['record_type']
+    ttl = kwargs.get('ttl', 60)
+
+    record_type = record_type.lower()
+    if record_type not in ['a', 'cname']:
+        raise ValueError("Invalid record type: %s" % record_type)
+
+    node = _get_node(name)
+    instance_id = node['instanceId']
+    ip_address = node['privateIpAddress']
+
+    provider = get_configured_provider()
+
+    import boto
+    from boto.route53.zone import Zone
+
+    conn = boto.connect_route53(
+        aws_access_key_id=provider['id'],
+        aws_secret_access_key=provider['key'],
+    )
+
+    zone = Zone(conn, {'Id': hosted_zone_id})
+
+    status = getattr(zone, "add_%s" % record_type)(fqdn, ip_address, ttl)
+
+    return status
 
 
 def create_attach_volumes(name, kwargs, call=None):
